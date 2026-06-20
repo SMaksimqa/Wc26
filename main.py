@@ -46,17 +46,34 @@ MOTIVATE = [
 ]
 
 FLAGS = {
-    "Аргентина": "🇦🇷", "Бразилия": "🇧🇷", "Испания": "🇪🇸",
-    "Германия": "🇩🇪", "Франция": "🇫🇷", "Англия": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-    "Португалия": "🇵🇹", "Нидерланды": "🇳🇱", "Бельгия": "🇧🇪",
-    "Италия": "🇮🇹", "Хорватия": "🇭🇷", "Мексика": "🇲🇽",
-    "Япония": "🇯🇵", "Марокко": "🇲🇦", "США": "🇺🇸",
-    "Польша": "🇵🇱", "Австралия": "🇦🇺", "Сенегал": "🇸🇳",
-    "Уругвай": "🇺🇾", "Колумбия": "🇨🇴", "Турция": "🇹🇷",
-    "Корея": "🇰🇷", "Канада": "🇨🇦", "Швейцария": "🇨🇭",
-    "Дания": "🇩🇰", "Сербия": "🇷🇸", "Чили": "🇨🇱",
-    "Нигерия": "🇳🇬", "Гана": "🇬🇭", "Египет": "🇪🇬",
-    "Иран": "🇮🇷", "Эквадор": "🇪🇨",
+    # Group A
+    "Mexico": "🇲🇽", "South Korea": "🇰🇷", "Czechia": "🇨🇿", "South Africa": "🇿🇦",
+    # Group B
+    "Canada": "🇨🇦", "Qatar": "🇶🇦", "Switzerland": "🇨🇭", "Bosnia": "🇧🇦",
+    # Group C
+    "Brazil": "🇧🇷", "Morocco": "🇲🇦", "Haiti": "🇭🇹", "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    # Group D
+    "USA": "🇺🇸", "Turkey": "🇹🇷", "Australia": "🇦🇺", "Paraguay": "🇵🇾",
+    # Group E
+    "Germany": "🇩🇪", "Netherlands": "🇳🇱", "Ivory Coast": "🇨🇮",
+    "Ecuador": "🇪🇨", "Curaçao": "🇨🇼",
+    # Group F
+    "Sweden": "🇸🇪", "Japan": "🇯🇵", "Tunisia": "🇹🇳",
+    # Group G
+    "Belgium": "🇧🇪", "Iran": "🇮🇷", "Egypt": "🇪🇬", "New Zealand": "🇳🇿",
+    # Group H
+    "Spain": "🇪🇸", "Saudi Arabia": "🇸🇦", "Uruguay": "🇺🇾", "Cape Verde": "🇨🇻",
+    # Group I
+    "France": "🇫🇷", "Norway": "🇳🇴", "Senegal": "🇸🇳", "Iraq": "🇮🇶",
+    # Group J
+    "Argentina": "🇦🇷", "Austria": "🇦🇹", "Algeria": "🇩🇿", "Jordan": "🇯🇴",
+    # Group K
+    "Portugal": "🇵🇹", "Colombia": "🇨🇴", "DR Congo": "🇨🇩", "Uzbekistan": "🇺🇿",
+    # Group L
+    "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Croatia": "🇭🇷", "Ghana": "🇬🇭", "Panama": "🇵🇦",
+    # Extras
+    "Italy": "🇮🇹", "Poland": "🇵🇱", "Denmark": "🇩🇰", "Serbia": "🇷🇸",
+    "Nigeria": "🇳🇬", "Chile": "🇨🇱", "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "Ukraine": "🇺🇦",
 }
 
 
