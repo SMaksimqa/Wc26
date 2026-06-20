@@ -246,6 +246,15 @@ def match_bets(mid: int):
         ).fetchall()
 
 
+def find_match_by_teams(home: str, away: str):
+    """Find an unsettled match by team names. Used by auto-sync."""
+    with _conn() as c:
+        return c.execute(
+            "SELECT * FROM matches WHERE home=? AND away=? AND done=0",
+            (home, away),
+        ).fetchone()
+
+
 def missing_bettors(mid: int):
     with _conn() as c:
         return c.execute(

@@ -18,6 +18,7 @@ from telegram.ext import (
 )
 
 import db
+import sync as syncer
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8696624011:AAHKrfx84k7n8Iu1iMEFLiJwoTHM1d1JevQ")
@@ -628,6 +629,12 @@ async def _remind(ctx: ContextTypes.DEFAULT_TYPE):
             log.warning("reminder failed %s: %s", u["id"], e)
 
 
+async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
+    n = await syncer.check_results(ctx.bot)
+    if n:
+        log.info("auto-sync: settled %d new match(es)", n)
+
+
 def _schedule_reminders(app: Application):
     matches = db.upcoming(50)
     now = datetime.now()
@@ -679,7 +686,10 @@ def main():
 
     _schedule_reminders(app)
 
-    log.info("⚽ WC 2026 Bot started!")
+    # Auto-sync results every 10 minutes (first run after 60 sec)
+    app.job_queue.run_repeating(_sync_job, interval=600, first=60,
+                                name="auto_sync")
+    log.info("⚽ WC 2026 Bot started! Auto-sync every 10 min.")
     app.run_polling(drop_pending_updates=True)
 
 
