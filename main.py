@@ -422,42 +422,76 @@ async def cmd_allbets(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Только для администраторов")
         return
 
+    # Without argument → show match picker
     if not ctx.args:
-        await update.message.reply_text("Формат: `/allbets <id_матча>`", parse_mode="Markdown")
+        matches = db.upcoming(20)
+        finished = db.recent(10)
+        all_matches = list(matches) + [m for m in finished if m not in matches]
+
+        if not all_matches:
+            await update.message.reply_text("Матчей нет")
+            return
+
+        kb = []
+        for m in all_matches:
+            bets = db.match_bets(m["id"])
+            dt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
+            status = "✅" if m["done"] else ("⏳" if bets else "⬜")
+            label = f"{status} #{m['id']} {m['home']} vs {m['away']} ({len(bets)} ставок)"
+            kb.append([InlineKeyboardButton(label, callback_data=f"admin_bets_{m['id']}")])
+
+        await update.message.reply_text(
+            "👑 *Обзор ставок — выбери матч:*\n_(✅ завершён | ⏳ есть ставки | ⬜ нет ставок)_",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="Markdown",
+        )
         return
 
+    # With argument → show bets for specific match
     try:
         mid = int(ctx.args[0])
     except ValueError:
         await update.message.reply_text("❌ Неверный id")
         return
 
+    await _show_match_bets(update.message.reply_text, mid)
+
+
+async def _show_match_bets(reply_fn, mid: int):
     m = db.get_match(mid)
     if not m:
-        await update.message.reply_text(f"❌ Матч #{mid} не найден")
+        await reply_fn(f"❌ Матч #{mid} не найден")
         return
 
     bets = db.match_bets(mid)
     miss = db.missing_bettors(mid)
+    dt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
+
+    result_line = ""
+    if m["done"]:
+        result_line = f"🏁 Итог: *{m['home_score']}–{m['away_score']}*\n"
 
     lines = [
-        f"⚽ *Ставки на матч #{mid}*\n"
+        f"⚽ *Матч #{mid}*\n"
         f"{flag(m['home'])} {m['home']} vs {m['away']} {flag(m['away'])}\n"
-        f"📅 {m['mtime']} | {m['stage']}\n"
+        f"📅 {dt.strftime('%d.%m %H:%M')} | {m['stage']}\n"
+        f"{result_line}"
     ]
-    if bets:
-        lines.append("✅ *Поставили:*")
-        for b in bets:
-            lines.append(f"  • {b['name']}: {b['bet_h']}–{b['bet_a']}")
-    else:
-        lines.append("😴 Никто ещё не поставил")
 
-    if miss:
-        lines.append(f"\n⚠️ *Не поставили:*")
+    if bets:
+        lines.append(f"✅ *Поставили ({len(bets)}):*")
+        for b in bets:
+            pts = f" → +{b['pts']}pts" if m["done"] else ""
+            lines.append(f"  • *{b['name']}*: {b['bet_h']}–{b['bet_a']}{pts}")
+    else:
+        lines.append("😴 *Никто не поставил*")
+
+    if miss and not m["done"]:
+        lines.append(f"\n⚠️ *Не поставили ({len(miss)}):*")
         for u in miss:
             lines.append(f"  • {u['name']}")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await reply_fn("\n".join(lines), parse_mode="Markdown")
 
 
 async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -531,6 +565,17 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "bx":
         await q.edit_message_text("❌ Отменено")
+        return
+
+    # Admin: show bets for selected match
+    if data.startswith("admin_bets_"):
+        if not db.is_admin(uid):
+            await q.answer("⛔ Только для администраторов", show_alert=True)
+            return
+        mid = int(data.split("_")[2])
+        await _show_match_bets(
+            lambda text, **kw: q.edit_message_text(text, **kw), mid
+        )
         return
 
     # Match selected → ask home score
