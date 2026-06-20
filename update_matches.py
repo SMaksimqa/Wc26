@@ -96,28 +96,38 @@ MATCHES = [
 
 def main():
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
-    print("Clearing old placeholder matches and bets...")
-    c.execute("DELETE FROM bets")
-    c.execute("DELETE FROM matches")
-    c.execute("UPDATE users SET points = 0")
-    try:
-        c.execute("DELETE FROM sqlite_sequence WHERE name='matches'")
-    except Exception:
-        pass
+    # Matches that have bets — never touch them
+    bet_mids = {r[0] for r in c.execute("SELECT DISTINCT match_id FROM bets").fetchall()}
+    if bet_mids:
+        print(f"Preserving {len(bet_mids)} match(es) with existing bets.")
 
-    print(f"Inserting {len(MATCHES)} real WC 2026 matches...")
+    # Remove matches that have NO bets (the old fake Russian-name placeholders)
+    if bet_mids:
+        ph = ",".join("?" * len(bet_mids))
+        c.execute(f"DELETE FROM matches WHERE id NOT IN ({ph})", list(bet_mids))
+    else:
+        c.execute("DELETE FROM matches")
+        c.execute("UPDATE users SET points = 0")
+
+    # Insert only matches that don't already exist (match by home+away team name)
+    existing = {(r["home"], r["away"]) for r in c.execute("SELECT home, away FROM matches").fetchall()}
+
+    added = 0
     for home, away, mtime, stage, hs, as_, done in MATCHES:
-        c.execute(
-            "INSERT INTO matches(home, away, mtime, stage, home_score, away_score, done) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (home, away, mtime, stage, hs, as_, done),
-        )
+        if (home, away) not in existing:
+            c.execute(
+                "INSERT INTO matches(home, away, mtime, stage, home_score, away_score, done) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (home, away, mtime, stage, hs, as_, done),
+            )
+            added += 1
 
     conn.commit()
     conn.close()
-    print(f"Done! {len(MATCHES)} matches loaded.")
+    print(f"Done! Added {added} new matches (skipped {len(existing)} already in DB).")
     print("Restart bot: systemctl restart wc26bot")
 
 
