@@ -7,12 +7,14 @@ import random
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 import db
@@ -75,6 +77,17 @@ FLAGS = {
     "Italy": "🇮🇹", "Poland": "🇵🇱", "Denmark": "🇩🇰", "Serbia": "🇷🇸",
     "Nigeria": "🇳🇬", "Chile": "🇨🇱", "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "Ukraine": "🇺🇦",
 }
+
+
+MAIN_KB = ReplyKeyboardMarkup(
+    [
+        ["⚽ Матчи", "🎯 Ставка"],
+        ["📋 Мои ставки", "🏆 Лидеры"],
+        ["📊 Результаты", "❓ Помощь"],
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
 
 
 def flag(team: str) -> str:
@@ -150,15 +163,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     admin_note = "\n\n👑 Ты первый — ты *АДМИНИСТРАТОР!*" if first else ""
     await update.message.reply_text(
         f"⚽ Привет, *{u.first_name}*! Добро пожаловать в *ЧМ 2026 Ставки*!\n\n"
-        f"📋 *Команды:*\n"
-        f"/matches — ближайшие матчи\n"
-        f"/bet — сделать ставку\n"
-        f"/mybets — мои ставки\n"
-        f"/leaderboard — таблица лидеров\n"
-        f"/results — результаты\n"
-        f"/myid — твой Telegram ID\n"
-        f"/help — помощь{admin_note}",
+        f"Используй кнопки внизу 👇{admin_note}",
         parse_mode="Markdown",
+        reply_markup=MAIN_KB,
     )
 
 
@@ -495,6 +502,24 @@ async def cmd_promote(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Пользователь `{target}` теперь администратор", parse_mode="Markdown")
 
 
+# ── REPLY KEYBOARD HANDLER ────────────────────────────────────────────────
+
+_BUTTON_MAP = {
+    "⚽ Матчи":      cmd_matches,
+    "🎯 Ставка":     cmd_bet,
+    "📋 Мои ставки": cmd_mybets,
+    "🏆 Лидеры":     cmd_leaderboard,
+    "📊 Результаты": cmd_results,
+    "❓ Помощь":     cmd_help,
+}
+
+
+async def handle_kb_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    handler = _BUTTON_MAP.get(update.message.text)
+    if handler:
+        await handler(update, ctx)
+
+
 # ── CALLBACK HANDLER ───────────────────────────────────────────────────────
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -645,6 +670,9 @@ def main():
     app.add_handler(CommandHandler("allbets",    cmd_allbets))
     app.add_handler(CommandHandler("broadcast",  cmd_broadcast))
     app.add_handler(CommandHandler("promote",    cmd_promote))
+
+    # Reply keyboard buttons
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kb_button))
 
     # Callbacks
     app.add_handler(CallbackQueryHandler(on_callback))
