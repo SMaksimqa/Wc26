@@ -158,12 +158,13 @@ async def _broadcast_result(bot, match, hs: int, as_: int, results: list):
     if results:
         text += "📊 *Итоги ставок:*\n"
         for r in results:
+            bet = f"{r['bet_h']}–{r['bet_a']}"
             if r["pts"] == 5:
-                text += f"{random.choice(WIN_EXACT)} — *{r['name']}* +5 очков\n"
+                text += f"{random.choice(WIN_EXACT)} — *{r['name']}* ставил {bet} +5 очков\n"
             elif r["pts"] == 2:
-                text += f"{random.choice(WIN_OUT)} — *{r['name']}* +2 очка\n"
+                text += f"{random.choice(WIN_OUT)} — *{r['name']}* ставил {bet} +2 очка\n"
             else:
-                text += f"{random.choice(LOSE)} — {r['name']} (ставил {r['bet_h']}–{r['bet_a']})\n"
+                text += f"{random.choice(LOSE)} — {r['name']} ставил {bet}\n"
     else:
         text += "_(никто не поставил на этот матч)_"
 
