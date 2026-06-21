@@ -4,7 +4,7 @@
 import logging
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time, timezone
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
@@ -37,6 +37,21 @@ TRASH = [
     "Не ставишь — не выигрываешь! 🤷",
     "Слабак не поставил — ждёт чужих побед 😂",
     "Эй, матч уже скоро, а ставки нет! ⏰",
+]
+
+TRASH_MORNING = [
+    "😴 {names} дрыхнут и ставки не делают! Позор!",
+    "🤡 {names} — что, кишка тонка поставить?",
+    "🦥 {names} ленятся. Давайте уже, матчи сами себя не угадают!",
+    "⚠️ {names} ещё не поставили. Проспите турнир!",
+    "😂 {names} — последние как всегда. Ставки сами себя не делают!",
+]
+
+TRASH_REVEAL = [
+    "💀 Слились и не поставили: *{names}*",
+    "🤡 *{names}* — испугались? Ставок нет!",
+    "😴 *{names}* проспали ставку. Позорники!",
+    "🦥 *{names}* — где ставки? Трусы!",
 ]
 
 MOTIVATE = [
@@ -689,6 +704,82 @@ async def _remind(ctx: ContextTypes.DEFAULT_TYPE):
             log.warning("reminder failed %s: %s", u["id"], e)
 
 
+async def _reveal_bets(ctx: ContextTypes.DEFAULT_TYPE):
+    """Broadcast everyone's bets 5 minutes before kickoff."""
+    mid = ctx.job.data["mid"]
+    m = db.get_match(mid)
+    if not m or m["done"]:
+        return
+
+    bets = db.match_bets(mid)
+    miss = db.missing_bettors(mid)
+    h, a = m["home"], m["away"]
+
+    lines = [
+        f"👀 *Ставки раскрыты!*\n",
+        f"{flag(h)} *{h}* vs *{a}* {flag(a)}",
+        f"⏰ Матч через 5 минут!\n",
+    ]
+
+    if bets:
+        lines.append("🎯 *Кто на что поставил:*")
+        for b in bets:
+            oc = outcome_text(b["bet_h"], b["bet_a"], h, a)
+            lines.append(f"  • *{b['name']}*: {b['bet_h']}–{b['bet_a']}  _({oc})_")
+    else:
+        lines.append("😶 Никто не поставил на этот матч!")
+
+    if miss:
+        names = ", ".join(u["name"] for u in miss)
+        lines.append("\n" + random.choice(TRASH_REVEAL).format(names=names))
+
+    text = "\n".join(lines)
+    for u in db.all_users():
+        try:
+            await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
+        except Exception as e:
+            log.warning("reveal_bets failed %s: %s", u["id"], e)
+
+
+async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
+    """9:00 MSK daily: show today's matches and shame those who haven't bet."""
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    matches = db.upcoming(20)
+    today = [m for m in matches if m["mtime"].startswith(today_str)]
+    if not today:
+        return
+
+    all_users = db.all_users()
+    no_bets = {u["id"]: u["name"] for u in all_users}
+
+    lines = [f"☀️ *Матчи на сегодня — {now.strftime('%d.%m')}:*\n"]
+    for m in today:
+        dt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
+        bets = db.match_bets(m["id"])
+        for b in bets:
+            no_bets.pop(b["user_id"], None)
+        lines.append(
+            f"⚽ {flag(m['home'])} *{m['home']}* vs *{m['away']}* {flag(m['away'])}\n"
+            f"   🕐 {dt.strftime('%H:%M')} МСК  |  {len(bets)} ставок\n"
+        )
+
+    if no_bets:
+        names = ", ".join(no_bets.values())
+        lines.append(random.choice(TRASH_MORNING).format(names=names))
+        lines.append("👉 /bet")
+    else:
+        lines.append("✅ Все поставили — красавчики!")
+
+    text = "\n".join(lines)
+    for u in all_users:
+        try:
+            await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
+        except Exception as e:
+            log.warning("morning_digest failed %s: %s", u["id"], e)
+
+
 async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
     n = await syncer.check_results(ctx.bot)
     if n:
@@ -700,6 +791,7 @@ def _schedule_reminders(app: Application):
     now = datetime.now()
     for m in matches:
         mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
+
         remind_at = mt - timedelta(hours=1)
         if remind_at > now:
             app.job_queue.run_once(
@@ -709,6 +801,16 @@ def _schedule_reminders(app: Application):
                 name=f"remind_{m['id']}",
             )
             log.info("Scheduled reminder for match #%s at %s", m["id"], remind_at)
+
+        reveal_at = mt - timedelta(minutes=5)
+        if reveal_at > now:
+            app.job_queue.run_once(
+                _reveal_bets,
+                when=reveal_at,
+                data={"mid": m["id"]},
+                name=f"reveal_{m['id']}",
+            )
+            log.info("Scheduled reveal for match #%s at %s", m["id"], reveal_at)
 
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
@@ -749,6 +851,14 @@ def main():
     # Auto-sync results every 10 minutes (first run after 60 sec)
     app.job_queue.run_repeating(_sync_job, interval=600, first=60,
                                 name="auto_sync")
+
+    # Morning digest at 09:00 MSK = 06:00 UTC
+    app.job_queue.run_daily(
+        _morning_digest,
+        time=dt_time(6, 0, tzinfo=timezone.utc),
+        name="morning_digest",
+    )
+
     log.info("⚽ WC 2026 Bot started! Auto-sync every 10 min.")
     app.run_polling(drop_pending_updates=True)
 

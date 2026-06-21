@@ -107,7 +107,43 @@ async def check_results(bot) -> int:
 
     if settled:
         log.info("sync: settled %d match(es)", settled)
+        if settled >= 2:
+            await _broadcast_standings(bot)
     return settled
+
+
+async def _broadcast_standings(bot):
+    """Send updated leaderboard after a batch of results."""
+    rows = db.leaderboard()
+    if not rows:
+        return
+
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"]
+    lines = ["🏆 *Таблица лидеров — актуально:*\n"]
+    for i, r in enumerate(rows):
+        medal = medals[i] if i < len(medals) else f"{i+1}."
+        name = r["name"] or r["username"] or "Аноним"
+        lines.append(
+            f"{medal} *{name}* — {r['points']} очков  "
+            f"_(🔮{r['exact'] or 0} точных)_"
+        )
+
+    if len(rows) > 1:
+        last = rows[-1]
+        last_name = last["name"] or "Аноним"
+        roasts = [
+            f"\n😂 *{last_name}* — последнее место. Позорище!",
+            f"\n💀 *{last_name}* — на дне. Пора завязывать с футболом!",
+            f"\n🤡 *{last_name}* — аутсайдер тура. Без комментариев!",
+        ]
+        lines.append(random.choice(roasts))
+
+    text = "\n".join(lines)
+    for u in db.all_users():
+        try:
+            await bot.send_message(u["id"], text, parse_mode="Markdown")
+        except Exception as e:
+            log.warning("standings: send to %s failed: %s", u["id"], e)
 
 
 async def _broadcast_result(bot, match, hs: int, as_: int, results: list):
