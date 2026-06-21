@@ -304,32 +304,47 @@ async def cmd_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_results(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    matches = db.recent(5)
+    try:
+        matches = db.recent(5)
+    except Exception as e:
+        log.exception("cmd_results: db.recent failed: %s", e)
+        await update.message.reply_text("⚠️ Ошибка загрузки результатов")
+        return
+
     if not matches:
         await update.message.reply_text("😴 Завершённых матчей пока нет")
         return
 
     lines = ["📊 *Последние результаты:*\n"]
     for m in matches:
-        bets = db.match_bets(m["id"])
-        exact = [b for b in bets if b["bet_h"] == m["home_score"] and b["bet_a"] == m["away_score"]]
-        outcome_ok = [b for b in bets if b["pts"] == 2]
-        miss = db.missing_bettors(m["id"])
+        try:
+            bets = db.match_bets(m["id"])
+            exact = [b for b in bets if b["bet_h"] == m["home_score"] and b["bet_a"] == m["away_score"]]
+            outcome_ok = [b for b in bets if b["pts"] == 2]
+            miss = db.missing_bettors(m["id"])
 
-        lines.append(
-            f"{flag(m['home'])} {m['home']} *{m['home_score']}–{m['away_score']}* "
-            f"{m['away']} {flag(m['away'])} | _{m['stage']}_\n"
-        )
-        if exact:
-            lines.append(f"  🔮 Точный счёт: {', '.join(b['name'] for b in exact)} (+5)\n")
-        if outcome_ok:
-            lines.append(f"  ✅ Исход: {', '.join(b['name'] for b in outcome_ok)} (+2)\n")
-        no_bet = [u for u in miss]
-        if no_bet:
-            lines.append(f"  😴 Не ставили: {', '.join(u['name'] for u in no_bet)}\n")
-        lines.append("")
+            lines.append(
+                f"{flag(m['home'])} {m['home']} *{m['home_score']}–{m['away_score']}* "
+                f"{m['away']} {flag(m['away'])} | {m['stage']}\n"
+            )
+            if exact:
+                lines.append(f"  🔮 Точный счёт: {', '.join(b['name'] for b in exact)} (+5)\n")
+            if outcome_ok:
+                lines.append(f"  ✅ Исход: {', '.join(b['name'] for b in outcome_ok)} (+2)\n")
+            if miss:
+                lines.append(f"  😴 Не ставили: {', '.join(u['name'] for u in miss)}\n")
+            lines.append("")
+        except Exception as e:
+            log.exception("cmd_results: match #%s error: %s", m["id"], e)
+            continue
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    try:
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    except Exception as e:
+        log.exception("cmd_results: send failed: %s", e)
+        # Try sending without Markdown if formatting failed
+        plain = "\n".join(lines).replace("*", "").replace("_", "").replace("\\", "")
+        await update.message.reply_text(plain)
 
 
 # ── ADMIN COMMANDS ─────────────────────────────────────────────────────────
