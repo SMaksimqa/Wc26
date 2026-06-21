@@ -255,6 +255,13 @@ def find_match_by_teams(home: str, away: str):
         ).fetchone()
 
 
+def reset_scores():
+    """Reset all user points and mark all bets as unsettled."""
+    with _conn() as c:
+        c.execute("UPDATE users SET points = 0")
+        c.execute("UPDATE bets SET pts = 0, settled = 0")
+
+
 def missing_bettors(mid: int):
     with _conn() as c:
         return c.execute(

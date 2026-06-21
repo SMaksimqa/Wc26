@@ -524,6 +524,26 @@ async def _show_match_bets(reply_fn, mid: int):
     await reply_fn("\n".join(lines), parse_mode="Markdown")
 
 
+async def cmd_resetscores(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not db.is_admin(uid):
+        await update.message.reply_text("⛔ Только для администраторов")
+        return
+
+    args = ctx.args
+    if not args or args[0] != "confirm":
+        await update.message.reply_text(
+            "⚠️ Это сбросит *все очки* всем участникам!\n\n"
+            "Для подтверждения: `/resetscores confirm`",
+            parse_mode="Markdown",
+        )
+        return
+
+    db.reset_scores()
+    await update.message.reply_text("✅ Все очки сброшены до нуля!")
+    await _send_all(ctx.bot, "🔄 *Администратор сбросил таблицу лидеров.* Начинаем заново!", exclude_id=uid)
+
+
 async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not db.is_admin(uid):
@@ -838,7 +858,8 @@ def main():
     app.add_handler(CommandHandler("setresult",  cmd_setresult))
     app.add_handler(CommandHandler("allbets",    cmd_allbets))
     app.add_handler(CommandHandler("broadcast",  cmd_broadcast))
-    app.add_handler(CommandHandler("promote",    cmd_promote))
+    app.add_handler(CommandHandler("promote",      cmd_promote))
+    app.add_handler(CommandHandler("resetscores",  cmd_resetscores))
 
     # Reply keyboard buttons
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kb_button))
