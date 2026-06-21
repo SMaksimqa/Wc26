@@ -623,9 +623,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await q.answer("⛔ Только для администраторов", show_alert=True)
             return
         mid = int(data.split("_")[2])
-        await _show_match_bets(
-            lambda text, **kw: q.edit_message_text(text, **kw), mid
-        )
+        try:
+            await _show_match_bets(q.edit_message_text, mid)
+        except Exception as e:
+            log.exception("admin_bets callback error for match #%s: %s", mid, e)
+            await q.answer(f"Ошибка: {e}", show_alert=True)
         return
 
     # Match selected → ask home score
@@ -812,25 +814,25 @@ def _schedule_reminders(app: Application):
     for m in matches:
         mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
 
-        remind_at = mt - timedelta(hours=1)
-        if remind_at > now:
+        remind_delay = (mt - timedelta(hours=1) - now).total_seconds()
+        if remind_delay > 0:
             app.job_queue.run_once(
                 _remind,
-                when=remind_at,
+                when=remind_delay,
                 data={"mid": m["id"]},
                 name=f"remind_{m['id']}",
             )
-            log.info("Scheduled reminder for match #%s at %s", m["id"], remind_at)
+            log.info("Scheduled reminder for match #%s in %.0fs", m["id"], remind_delay)
 
-        reveal_at = mt - timedelta(minutes=5)
-        if reveal_at > now:
+        reveal_delay = (mt - timedelta(minutes=5) - now).total_seconds()
+        if reveal_delay > 0:
             app.job_queue.run_once(
                 _reveal_bets,
-                when=reveal_at,
+                when=reveal_delay,
                 data={"mid": m["id"]},
                 name=f"reveal_{m['id']}",
             )
-            log.info("Scheduled reveal for match #%s at %s", m["id"], reveal_at)
+            log.info("Scheduled reveal for match #%s in %.0fs", m["id"], reveal_delay)
 
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
