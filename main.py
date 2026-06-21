@@ -97,9 +97,10 @@ FLAGS = {
 
 MAIN_KB = ReplyKeyboardMarkup(
     [
-        ["⚽ Матчи", "🎯 Ставка"],
-        ["📋 Мои ставки", "🏆 Лидеры"],
-        ["📊 Результаты", "❓ Помощь"],
+        ["⚽ Матчи",       "🎯 Ставка"],
+        ["📋 Мои ставки",  "👥 Ставки"],
+        ["🏆 Лидеры",      "📊 Результаты"],
+        ["❓ Помощь"],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -295,6 +296,35 @@ async def cmd_mybets(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     total = sum(b["pts"] for b in bets if b["settled"])
     lines.append(f"💰 *Итого очков: {total}*")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_show_bets(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Show all friends' bets on upcoming matches."""
+    matches = db.upcoming(10)
+    all_users = db.all_users()
+    if not matches:
+        await update.message.reply_text("😴 Нет предстоящих матчей")
+        return
+
+    lines = ["👥 *Ставки на предстоящие матчи:*\n"]
+    for m in matches[:6]:
+        dt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
+        bets = db.match_bets(m["id"])
+        bet_map = {b["user_id"]: b for b in bets}
+
+        lines.append(
+            f"⚽ {flag(m['home'])} *{m['home']}* vs *{m['away']}* {flag(m['away'])}\n"
+            f"🕐 {dt.strftime('%d.%m %H:%M')} | {m['stage']}"
+        )
+        for u in all_users:
+            b = bet_map.get(u["id"])
+            if b:
+                lines.append(f"  ✅ {u['name']}: {b['bet_h']}–{b['bet_a']}")
+            else:
+                lines.append(f"  ❓ {u['name']}: не поставил")
+        lines.append("")
+
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
@@ -593,6 +623,7 @@ _BUTTON_MAP = {
     "⚽ Матчи":      cmd_matches,
     "🎯 Ставка":     cmd_bet,
     "📋 Мои ставки": cmd_mybets,
+    "👥 Ставки":     cmd_show_bets,
     "🏆 Лидеры":     cmd_leaderboard,
     "📊 Результаты": cmd_results,
     "❓ Помощь":     cmd_help,
@@ -810,7 +841,7 @@ async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
 
 def _schedule_reminders(app: Application):
     matches = db.upcoming(50)
-    now = datetime.now()
+    now = datetime.utcnow() + timedelta(hours=3)  # current MSK time
     for m in matches:
         mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
 
@@ -854,6 +885,7 @@ def main():
     app.add_handler(CommandHandler("leaderboard", cmd_leaderboard))
     app.add_handler(CommandHandler("lb",          cmd_leaderboard))
     app.add_handler(CommandHandler("results",     cmd_results))
+    app.add_handler(CommandHandler("bets",        cmd_show_bets))
 
     # Admin
     app.add_handler(CommandHandler("addmatch",   cmd_addmatch))

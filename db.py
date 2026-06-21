@@ -1,8 +1,15 @@
 import sqlite3
 import contextlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_PATH = "wc2026.db"
+
+_MSK = timedelta(hours=3)
+
+
+def _now_msk() -> datetime:
+    """Current Moscow time (UTC+3), works regardless of server timezone."""
+    return datetime.utcnow() + _MSK
 
 
 @contextlib.contextmanager
@@ -134,7 +141,7 @@ def leaderboard():
 # ── MATCHES ────────────────────────────────────────────────────────────────
 
 def upcoming(limit: int = 15):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = _now_msk().strftime("%Y-%m-%d %H:%M")
     with _conn() as c:
         return c.execute(
             "SELECT * FROM matches WHERE mtime > ? AND done = 0 ORDER BY mtime LIMIT ?",
@@ -209,7 +216,7 @@ def place_bet(uid: int, mid: int, h: int, a: int) -> tuple[bool, str]:
     if not m:
         return False, "Матч не найден"
     mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
-    if datetime.now() >= mt:
+    if _now_msk() >= mt:
         return False, "Ставки закрыты — матч уже начался ⏱️"
     if m["done"]:
         return False, "Матч уже завершён!"
