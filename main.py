@@ -574,6 +574,19 @@ async def cmd_resetscores(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _send_all(ctx.bot, "🔄 *Администратор сбросил таблицу лидеров.* Начинаем заново!", exclude_id=uid)
 
 
+async def cmd_forcesync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not db.is_admin(uid):
+        await update.message.reply_text("⛔ Только для администраторов")
+        return
+    await update.message.reply_text("🔄 Запускаю синхронизацию результатов...")
+    n = await syncer.check_results(ctx.bot)
+    if n:
+        await update.message.reply_text(f"✅ Обработано новых результатов: {n}")
+    else:
+        await update.message.reply_text("😴 Новых завершённых матчей не найдено")
+
+
 async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not db.is_admin(uid):
@@ -894,6 +907,7 @@ def main():
     app.add_handler(CommandHandler("broadcast",  cmd_broadcast))
     app.add_handler(CommandHandler("promote",      cmd_promote))
     app.add_handler(CommandHandler("resetscores",  cmd_resetscores))
+    app.add_handler(CommandHandler("forcesync",   cmd_forcesync))
 
     # Reply keyboard buttons
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kb_button))

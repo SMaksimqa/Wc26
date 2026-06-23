@@ -83,21 +83,34 @@ async def check_results(bot) -> int:
 
         h_code = m_api["home"]["code"]
         a_code = m_api["away"]["code"]
-        h_score = m_api["home"].get("score")
-        a_score = m_api["away"].get("score")
+
+        # Try multiple possible score field names from the API
+        h_score = (
+            m_api["home"].get("score")
+            or m_api["home"].get("goals")
+            or m_api["home"].get("ft_score")
+        )
+        a_score = (
+            m_api["away"].get("score")
+            or m_api["away"].get("goals")
+            or m_api["away"].get("ft_score")
+        )
 
         if h_score is None or a_score is None:
+            log.warning("sync: finished match %s/%s has no score: home=%s away=%s",
+                        h_code, a_code, m_api["home"], m_api["away"])
             continue
 
         home = CODE.get(h_code)
         away = CODE.get(a_code)
         if not home or not away:
-            log.debug("sync: unknown code %s/%s", h_code, a_code)
+            log.warning("sync: unknown code %s/%s", h_code, a_code)
             continue
 
         match = db.find_match_by_teams(home, away)
         if not match:
-            continue  # already settled or not in our DB
+            log.debug("sync: %s vs %s already settled or not in DB", home, away)
+            continue
 
         log.info("sync: settling #%d %s %d–%d %s", match["id"], home, h_score, a_score, away)
         results = db.set_result(match["id"], h_score, a_score)
