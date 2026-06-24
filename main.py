@@ -21,7 +21,9 @@ import db
 import sync as syncer
 
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8696624011:AAHKrfx84k7n8Iu1iMEFLiJwoTHM1d1JevQ")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN not set in .env")
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s %(message)s",
