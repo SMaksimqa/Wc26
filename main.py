@@ -576,6 +576,66 @@ async def cmd_resetscores(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _send_all(ctx.bot, "🔄 *Администратор сбросил таблицу лидеров.* Начинаем заново!", exclude_id=uid)
 
 
+async def cmd_rebroadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not db.is_admin(uid):
+        await update.message.reply_text("⛔ Только для администраторов")
+        return
+
+    if not ctx.args:
+        # Show list of recently finished matches
+        matches = db.recent(10)
+        if not matches:
+            await update.message.reply_text("Нет завершённых матчей")
+            return
+        lines = ["Выбери матч для повторной рассылки:\n"]
+        for m in matches:
+            lines.append(f"  /rebroadcast {m['id']} — {m['home']} {m['home_score']}–{m['away_score']} {m['away']}")
+        await update.message.reply_text("\n".join(lines))
+        return
+
+    try:
+        mid = int(ctx.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Неверный id")
+        return
+
+    m = db.get_match(mid)
+    if not m:
+        await update.message.reply_text(f"❌ Матч #{mid} не найден")
+        return
+    if not m["done"]:
+        await update.message.reply_text("❌ Матч ещё не завершён")
+        return
+
+    results = db.match_bets(mid)
+    settled = [r for r in results if r["pts"] is not None]
+
+    h, a = m["home"], m["away"]
+    hs, as_ = m["home_score"], m["away_score"]
+
+    text = (
+        f"⚽ *ФИНАЛЬНЫЙ СВИСТОК!*\n\n"
+        f"{flag(h)} *{h} {hs}–{as_} {a}* {flag(a)}\n"
+        f"_{m['stage']}_\n\n"
+    )
+    if settled:
+        text += "📊 *Итоги ставок:*\n"
+        for b in settled:
+            bet = f"{b['bet_h']}–{b['bet_a']}"
+            if b["pts"] == 5:
+                text += f"🔮 ОРАКУЛ! — *{b['name']}* ставил {bet} +5 очков\n"
+            elif b["pts"] == 2:
+                text += f"✅ Исход угадал — *{b['name']}* ставил {bet} +2 очка\n"
+            else:
+                text += f"❌ Мимо — {b['name']} ставил {bet}\n"
+    else:
+        text += "_(никто не поставил на этот матч)_"
+
+    await _send_all(ctx.bot, text)
+    await update.message.reply_text(f"✅ Разослано!")
+
+
 async def cmd_forcesync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not db.is_admin(uid):
@@ -909,7 +969,8 @@ def main():
     app.add_handler(CommandHandler("broadcast",  cmd_broadcast))
     app.add_handler(CommandHandler("promote",      cmd_promote))
     app.add_handler(CommandHandler("resetscores",  cmd_resetscores))
-    app.add_handler(CommandHandler("forcesync",   cmd_forcesync))
+    app.add_handler(CommandHandler("forcesync",    cmd_forcesync))
+    app.add_handler(CommandHandler("rebroadcast",  cmd_rebroadcast))
 
     # Reply keyboard buttons
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kb_button))
