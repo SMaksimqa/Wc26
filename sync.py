@@ -59,6 +59,15 @@ def _flag(team: str) -> str:
     return FLAGS.get(team, "⚽")
 
 
+def _get_score(team_data: dict):
+    """Extract score safely — handles 0 goals correctly."""
+    for field in ("score", "goals", "ft_score"):
+        val = team_data.get(field)
+        if val is not None:
+            return int(val)
+    return None
+
+
 async def check_results(bot) -> int:
     """
     Fetch latest results, settle unsettled matches, broadcast to users.
@@ -84,17 +93,8 @@ async def check_results(bot) -> int:
         h_code = m_api["home"]["code"]
         a_code = m_api["away"]["code"]
 
-        # Try multiple possible score field names from the API
-        h_score = (
-            m_api["home"].get("score")
-            or m_api["home"].get("goals")
-            or m_api["home"].get("ft_score")
-        )
-        a_score = (
-            m_api["away"].get("score")
-            or m_api["away"].get("goals")
-            or m_api["away"].get("ft_score")
-        )
+        h_score = _get_score(m_api["home"])
+        a_score = _get_score(m_api["away"])
 
         if h_score is None or a_score is None:
             log.warning("sync: finished match %s/%s has no score: home=%s away=%s",
