@@ -632,8 +632,14 @@ async def cmd_rebroadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         text += "_(никто не поставил на этот матч)_"
 
-    await _send_all(ctx.bot, text)
-    await update.message.reply_text(f"✅ Разослано!")
+    sent = 0
+    for u in db.all_users():
+        try:
+            await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
+            sent += 1
+        except Exception as e:
+            log.warning("rebroadcast: failed to send to %s: %s", u["id"], e)
+    await update.message.reply_text(f"✅ Разослано {sent} пользователям!")
 
 
 async def cmd_forcesync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
