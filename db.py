@@ -253,6 +253,14 @@ def match_bets(mid: int):
         ).fetchall()
 
 
+def match_exists(home: str, away: str) -> bool:
+    """Check if a match (any state) already exists in DB."""
+    with _conn() as c:
+        return c.execute(
+            "SELECT 1 FROM matches WHERE home=? AND away=?", (home, away)
+        ).fetchone() is not None
+
+
 def find_match_by_teams(home: str, away: str):
     """Find an unsettled match by team names. Used by auto-sync."""
     with _conn() as c:

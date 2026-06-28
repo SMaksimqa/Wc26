@@ -2,6 +2,7 @@
 import logging
 import random
 import aiohttp
+from datetime import datetime, timedelta
 import db
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,20 @@ CODE = {
     "COD": "DR Congo",     "UZB": "Uzbekistan",      "COL": "Colombia",
     "ENG": "England",      "CRO": "Croatia",         "GHA": "Ghana",
     "PAN": "Panama",       "CIV": "Ivory Coast",     "ECU": "Ecuador",
+}
+
+STAGE_NAMES = {
+    "group":        lambda g: f"Group {g}" if g else "Группа",
+    "round_of_32":  lambda g: "1/32 финала",
+    "r32":          lambda g: "1/32 финала",
+    "round_of_16":  lambda g: "1/16 финала",
+    "r16":          lambda g: "1/16 финала",
+    "quarter_final": lambda g: "Четвертьфинал",
+    "qf":           lambda g: "Четвертьфинал",
+    "semi_final":   lambda g: "Полуфинал",
+    "sf":           lambda g: "Полуфинал",
+    "final":        lambda g: "Финал",
+    "f":            lambda g: "Финал",
 }
 
 FLAGS = {
@@ -68,43 +83,73 @@ def _get_score(team_data: dict):
     return None
 
 
-async def check_results(bot) -> int:
+def _parse_msk_time(date_str: str) -> str:
+    """Convert ISO UTC timestamp to MSK (UTC+3) string."""
+    dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
+    return (dt + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
+
+
+def _format_stage(api_stage: str, group: str) -> str:
+    fn = STAGE_NAMES.get(api_stage.lower())
+    if fn:
+        return fn(group)
+    return api_stage.replace("_", " ").title()
+
+
+async def check_results(bot) -> tuple[int, int]:
     """
-    Fetch latest results, settle unsettled matches, broadcast to users.
-    Returns number of newly settled matches.
+    Fetch latest data, add new matches, settle finished ones, broadcast results.
+    Returns (settled, added) counts.
     """
     try:
         async with aiohttp.ClientSession() as s:
             async with s.get(MATCHES_URL, timeout=aiohttp.ClientTimeout(total=15)) as r:
                 if r.status != 200:
                     log.warning("sync: HTTP %s", r.status)
-                    return 0
+                    return 0, 0
                 payload = await r.json(content_type=None)
                 api_matches = payload.get("matches", payload)
     except Exception as e:
         log.warning("sync: fetch error: %s", e)
-        return 0
+        return 0, 0
 
     settled = 0
-    for m_api in api_matches:
-        if m_api.get("status") != "finished":
-            continue
+    added = 0
 
+    for m_api in api_matches:
         h_code = m_api["home"]["code"]
         a_code = m_api["away"]["code"]
+
+        home = CODE.get(h_code)
+        away = CODE.get(a_code)
+        if not home or not away:
+            log.debug("sync: unknown code %s/%s", h_code, a_code)
+            continue
+
+        api_stage = m_api.get("stage", "group")
+        group = m_api.get("group", "")
+        stage = _format_stage(api_stage, group)
+
+        # Auto-add new matches not yet in DB
+        if not db.match_exists(home, away):
+            try:
+                mtime = _parse_msk_time(m_api["date"])
+                db.add_match(home, away, mtime, stage)
+                log.info("sync: added new match %s vs %s at %s [%s]", home, away, mtime, stage)
+                added += 1
+            except Exception as e:
+                log.warning("sync: failed to add match %s vs %s: %s", home, away, e)
+                continue
+
+        if m_api.get("status") != "finished":
+            continue
 
         h_score = _get_score(m_api["home"])
         a_score = _get_score(m_api["away"])
 
         if h_score is None or a_score is None:
-            log.warning("sync: finished match %s/%s has no score: home=%s away=%s",
+            log.warning("sync: finished %s/%s has no score: %s %s",
                         h_code, a_code, m_api["home"], m_api["away"])
-            continue
-
-        home = CODE.get(h_code)
-        away = CODE.get(a_code)
-        if not home or not away:
-            log.warning("sync: unknown code %s/%s", h_code, a_code)
             continue
 
         match = db.find_match_by_teams(home, away)
@@ -122,7 +167,10 @@ async def check_results(bot) -> int:
         log.info("sync: settled %d match(es)", settled)
         if settled >= 2:
             await _broadcast_standings(bot)
-    return settled
+    if added:
+        log.info("sync: added %d new match(es)", added)
+
+    return settled, added
 
 
 async def _broadcast_standings(bot):

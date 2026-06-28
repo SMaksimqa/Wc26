@@ -915,9 +915,12 @@ async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
-    n = await syncer.check_results(ctx.bot)
-    if n:
-        log.info("auto-sync: settled %d new match(es)", n)
+    settled, added = await syncer.check_results(ctx.bot)
+    if settled:
+        log.info("auto-sync: settled %d new match(es)", settled)
+    if added:
+        log.info("auto-sync: added %d new match(es) — rescheduling reminders", added)
+        _schedule_reminders(ctx.application)
 
 
 def _schedule_reminders(app: Application):
@@ -927,7 +930,7 @@ def _schedule_reminders(app: Application):
         mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
 
         remind_delay = (mt - timedelta(hours=1) - now).total_seconds()
-        if remind_delay > 0:
+        if remind_delay > 0 and not app.job_queue.get_jobs_by_name(f"remind_{m['id']}"):
             app.job_queue.run_once(
                 _remind,
                 when=remind_delay,
@@ -937,7 +940,7 @@ def _schedule_reminders(app: Application):
             log.info("Scheduled reminder for match #%s in %.0fs", m["id"], remind_delay)
 
         reveal_delay = (mt - timedelta(minutes=5) - now).total_seconds()
-        if reveal_delay > 0:
+        if reveal_delay > 0 and not app.job_queue.get_jobs_by_name(f"reveal_{m['id']}"):
             app.job_queue.run_once(
                 _reveal_bets,
                 when=reveal_delay,
