@@ -648,11 +648,42 @@ async def cmd_forcesync(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Только для администраторов")
         return
     await update.message.reply_text("🔄 Запускаю синхронизацию результатов...")
-    n = await syncer.check_results(ctx.bot)
-    if n:
-        await update.message.reply_text(f"✅ Обработано новых результатов: {n}")
-    else:
-        await update.message.reply_text("😴 Новых завершённых матчей не найдено")
+    try:
+        settled, added = await syncer.check_results(ctx.bot)
+        if settled or added:
+            await update.message.reply_text(
+                f"✅ Зачтено результатов: *{settled}*\n"
+                f"➕ Добавлено новых матчей: *{added}*",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text("😴 Новых завершённых матчей не найдено")
+    except Exception as e:
+        log.exception("forcesync error: %s", e)
+        await update.message.reply_text(f"❌ Ошибка синхронизации: {e}")
+
+
+async def cmd_dbstatus(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not db.is_admin(uid):
+        await update.message.reply_text("⛔ Только для администраторов")
+        return
+    finished = db.recent(20)
+    upcoming = db.upcoming(10)
+    lines = [
+        f"📊 *Статус БД:*\n",
+        f"✅ Завершённых матчей: *{len(finished)}*",
+        f"⏳ Предстоящих матчей: *{len(upcoming)}*\n",
+    ]
+    if finished:
+        lines.append("*Последние результаты:*")
+        for m in finished[:5]:
+            lines.append(f"  #{m['id']} {m['home']} {m['home_score']}–{m['away_score']} {m['away']}")
+    if upcoming:
+        lines.append("\n*Ближайшие матчи:*")
+        for m in upcoming[:5]:
+            lines.append(f"  #{m['id']} {m['home']} vs {m['away']} ({m['mtime']})")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -750,7 +781,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text("❌ Матч не найден")
             return
         mt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
-        if datetime.now() >= mt:
+        now_msk = datetime.utcnow() + timedelta(hours=3)
+        if now_msk >= mt:
             await q.edit_message_text(f"⏱️ Ставки закрыты!\n{m['home']} vs {m['away']}")
             return
 
@@ -877,7 +909,7 @@ async def _reveal_bets(ctx: ContextTypes.DEFAULT_TYPE):
 
 async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
     """9:00 MSK daily: show today's matches and shame those who haven't bet."""
-    now = datetime.now()
+    now = datetime.utcnow() + timedelta(hours=3)  # MSK
     today_str = now.strftime("%Y-%m-%d")
 
     matches = db.upcoming(20)
@@ -980,6 +1012,7 @@ def main():
     app.add_handler(CommandHandler("resetscores",  cmd_resetscores))
     app.add_handler(CommandHandler("forcesync",    cmd_forcesync))
     app.add_handler(CommandHandler("rebroadcast",  cmd_rebroadcast))
+    app.add_handler(CommandHandler("dbstatus",     cmd_dbstatus))
 
     # Reply keyboard buttons
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_kb_button))
