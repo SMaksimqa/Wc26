@@ -117,56 +117,61 @@ async def check_results(bot) -> tuple[int, int]:
     added = 0
 
     for m_api in api_matches:
-        if not m_api:
-            continue
-        if not m_api.get("home") or not m_api.get("away"):
-            continue  # TBD matches (SF/Final placeholders)
+        h_code = "?"
+        a_code = "?"
+        try:
+            if not m_api:
+                continue
+            if not m_api.get("home") or not m_api.get("away"):
+                continue  # TBD matches (SF/Final placeholders)
 
-        h_code = m_api["home"].get("code", "")
-        a_code = m_api["away"].get("code", "")
+            h_code = m_api["home"].get("code", "")
+            a_code = m_api["away"].get("code", "")
 
-        home = CODE.get(h_code)
-        away = CODE.get(a_code)
-        if not home or not away:
-            log.debug("sync: unknown code %s/%s", h_code, a_code)
-            continue
-
-        api_stage = m_api.get("stage", "group")
-        group = m_api.get("group", "")
-        stage = _format_stage(api_stage, group)
-
-        # Auto-add new matches not yet in DB
-        if not db.match_exists(home, away):
-            try:
-                mtime = _parse_msk_time(m_api["date"])
-                db.add_match(home, away, mtime, stage)
-                log.info("sync: added new match %s vs %s at %s [%s]", home, away, mtime, stage)
-                added += 1
-            except Exception as e:
-                log.warning("sync: failed to add match %s vs %s: %s", home, away, e)
+            home = CODE.get(h_code)
+            away = CODE.get(a_code)
+            if not home or not away:
+                log.debug("sync: unknown code %s/%s", h_code, a_code)
                 continue
 
-        if m_api.get("status") != "finished":
-            continue
+            api_stage = m_api.get("stage", "group")
+            group = m_api.get("group", "")
+            stage = _format_stage(api_stage, group)
 
-        h_score = _get_score(m_api["home"])
-        a_score = _get_score(m_api["away"])
+            # Auto-add new matches not yet in DB
+            if not db.match_exists(home, away):
+                mtime = _parse_msk_time(m_api["date"])
+                db.add_match(home, away, mtime, stage)
+                log.info("sync: added %s vs %s at %s [%s]", home, away, mtime, stage)
+                added += 1
 
-        if h_score is None or a_score is None:
-            log.warning("sync: finished %s/%s has no score: %s %s",
-                        h_code, a_code, m_api["home"], m_api["away"])
-            continue
+            if m_api.get("status") != "finished":
+                continue
 
-        match = db.find_match_by_teams(home, away)
-        if not match:
-            log.debug("sync: %s vs %s already settled or not in DB", home, away)
-            continue
+            h_score = _get_score(m_api["home"])
+            a_score = _get_score(m_api["away"])
 
-        log.info("sync: settling #%d %s %d–%d %s", match["id"], home, h_score, a_score, away)
-        results = db.set_result(match["id"], h_score, a_score)
-        settled += 1
+            if h_score is None or a_score is None:
+                log.warning("sync: finished %s/%s has no score", h_code, a_code)
+                continue
 
-        await _broadcast_result(bot, match, h_score, a_score, results)
+            match = db.find_match_by_teams(home, away)
+            if not match:
+                log.debug("sync: %s vs %s already settled or not in DB", home, away)
+                continue
+
+            log.info("sync: settling #%d %s %d–%d %s", match["id"], home, h_score, a_score, away)
+            results = db.set_result(match["id"], h_score, a_score)
+            settled += 1
+
+            try:
+                await _broadcast_result(bot, match, h_score, a_score, results)
+                log.info("sync: broadcast sent for #%d %s vs %s", match["id"], home, away)
+            except Exception as e:
+                log.exception("sync: broadcast FAILED for #%d %s vs %s: %s", match["id"], home, away, e)
+
+        except Exception as e:
+            log.exception("sync: unhandled error on %s/%s: %s", h_code, a_code, e)
 
     if settled:
         log.info("sync: settled %d match(es)", settled)
