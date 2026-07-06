@@ -421,6 +421,7 @@ async def cmd_addmatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     db.add_match(home, away, mtime, stage)
+    _schedule_reminders(ctx.application)
     await update.message.reply_text(
         f"✅ Матч добавлен!\n{flag(home)} {home} vs {away} {flag(away)}\n📅 {mtime} | {stage}"
     )
@@ -946,6 +947,35 @@ async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
             log.warning("morning_digest failed %s: %s", u["id"], e)
 
 
+async def _check_stale(ctx: ContextTypes.DEFAULT_TYPE):
+    """Alert admins if a match started 2h ago but still has no result in DB."""
+    now = datetime.utcnow() + timedelta(hours=3)
+    with __import__("sqlite3").connect("wc2026.db") as conn:
+        conn.row_factory = __import__("sqlite3").Row
+        stale = conn.execute(
+            """SELECT * FROM matches
+               WHERE done=0
+                 AND datetime(mtime) <= datetime(?, '-120 minutes')
+               ORDER BY mtime""",
+            (now.strftime("%Y-%m-%d %H:%M"),),
+        ).fetchall()
+    if not stale:
+        return
+
+    lines = ["⚠️ *Матчи без результата (>2ч после начала):*\n"]
+    for m in stale:
+        lines.append(f"  #{m['id']} {m['home']} vs {m['away']} ({m['mtime']})")
+    lines.append("\nВведи `/setresult <id> <счёт>` или `/forcesync`")
+    text = "\n".join(lines)
+
+    for u in db.all_users():
+        if u["is_admin"]:
+            try:
+                await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
+            except Exception as e:
+                log.warning("stale_check: send to admin %s failed: %s", u["id"], e)
+
+
 async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
     settled, added = await syncer.check_results(ctx.bot)
     if settled:
@@ -1022,9 +1052,13 @@ def main():
 
     _schedule_reminders(app)
 
-    # Auto-sync results every 10 minutes (first run after 60 sec)
-    app.job_queue.run_repeating(_sync_job, interval=600, first=60,
+    # Auto-sync results every 5 minutes (first run after 30 sec)
+    app.job_queue.run_repeating(_sync_job, interval=300, first=30,
                                 name="auto_sync")
+
+    # Check for stale (unfinished) matches every 30 min
+    app.job_queue.run_repeating(_check_stale, interval=1800, first=120,
+                                name="stale_check")
 
     # Morning digest at 09:00 MSK = 06:00 UTC
     app.job_queue.run_daily(

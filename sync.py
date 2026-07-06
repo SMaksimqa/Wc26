@@ -229,8 +229,14 @@ async def _broadcast_result(bot, match, hs: int, as_: int, results: list):
     else:
         text += "_(никто не поставил на этот матч)_"
 
+    import asyncio
     for u in db.all_users():
-        try:
-            await bot.send_message(u["id"], text, parse_mode="Markdown")
-        except Exception as e:
-            log.warning("sync: send to %s failed: %s", u["id"], e)
+        for attempt in range(3):
+            try:
+                await bot.send_message(u["id"], text, parse_mode="Markdown")
+                break
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    log.warning("sync: send to %s failed after 3 attempts: %s", u["id"], e)
