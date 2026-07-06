@@ -117,8 +117,13 @@ async def check_results(bot) -> tuple[int, int]:
     added = 0
 
     for m_api in api_matches:
-        h_code = m_api["home"]["code"]
-        a_code = m_api["away"]["code"]
+        if not m_api:
+            continue
+        if not m_api.get("home") or not m_api.get("away"):
+            continue  # TBD matches (SF/Final placeholders)
+
+        h_code = m_api["home"].get("code", "")
+        a_code = m_api["away"].get("code", "")
 
         home = CODE.get(h_code)
         away = CODE.get(a_code)
