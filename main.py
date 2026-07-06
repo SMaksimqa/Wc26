@@ -638,8 +638,14 @@ async def cmd_rebroadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
             sent += 1
-        except Exception as e:
-            log.warning("rebroadcast: failed to send to %s: %s", u["id"], e)
+        except Exception:
+            # Fallback: plain text
+            plain = text.replace("*", "").replace("_", "").replace("`", "").replace("[", "")
+            try:
+                await ctx.bot.send_message(u["id"], plain)
+                sent += 1
+            except Exception as e2:
+                log.warning("rebroadcast: failed to send to %s: %s", u["id"], e2)
     await update.message.reply_text(f"✅ Разослано {sent} пользователям!")
 
 

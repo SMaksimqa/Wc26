@@ -70,6 +70,11 @@ WIN_OUT   = ["✅ Исход угадал", "👍 Верное направле�
 LOSE      = ["❌ Мимо", "💀 Эх, не угадал", "❌ Попробуй в следующий раз"]
 
 
+def _md(s) -> str:
+    """Escape Markdown v1 special chars in user-provided strings (names, etc.)."""
+    return str(s or "").replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
+
 def _flag(team: str) -> str:
     return FLAGS.get(team, "⚽")
 
@@ -193,7 +198,7 @@ async def _broadcast_standings(bot):
     lines = ["🏆 *Таблица лидеров — актуально:*\n"]
     for i, r in enumerate(rows):
         medal = medals[i] if i < len(medals) else f"{i+1}."
-        name = r["name"] or r["username"] or "Аноним"
+        name = _md(r["name"] or r["username"] or "Аноним")
         lines.append(
             f"{medal} *{name}* — {r['points']} очков  "
             f"_(🔮{r['exact'] or 0} точных)_"
@@ -201,7 +206,7 @@ async def _broadcast_standings(bot):
 
     if len(rows) > 1:
         last = rows[-1]
-        last_name = last["name"] or "Аноним"
+        last_name = _md(last["name"] or "Аноним")
         roasts = [
             f"\n😂 *{last_name}* — последнее место. Позорище!",
             f"\n💀 *{last_name}* — на дне. Пора завязывать с футболом!",
@@ -211,10 +216,33 @@ async def _broadcast_standings(bot):
 
     text = "\n".join(lines)
     for u in db.all_users():
+        await _safe_send(bot, u["id"], text)
+
+
+async def _safe_send(bot, user_id: int, text: str):
+    """Send message with Markdown, falling back to plain text on parse error."""
+    import asyncio
+    try:
+        await bot.send_message(user_id, text, parse_mode="Markdown")
+        return
+    except Exception as e:
+        err = str(e).lower()
+        if "parse" not in err and "markdown" not in err and "can't parse" not in err:
+            # Not a Markdown error — retry with backoff
+            for delay in (2, 4):
+                await asyncio.sleep(delay)
+                try:
+                    await bot.send_message(user_id, text, parse_mode="Markdown")
+                    return
+                except Exception:
+                    pass
+        # Fallback: strip Markdown and send plain text
+        log.warning("_safe_send: Markdown failed for %s (%s), sending plain", user_id, e)
+        plain = text.replace("*", "").replace("_", "").replace("`", "").replace("[", "")
         try:
-            await bot.send_message(u["id"], text, parse_mode="Markdown")
-        except Exception as e:
-            log.warning("standings: send to %s failed: %s", u["id"], e)
+            await bot.send_message(user_id, plain)
+        except Exception as e2:
+            log.warning("_safe_send: plain also failed for %s: %s", user_id, e2)
 
 
 async def _broadcast_result(bot, match, hs: int, as_: int, results: list):
@@ -229,24 +257,16 @@ async def _broadcast_result(bot, match, hs: int, as_: int, results: list):
     if results:
         text += "📊 *Итоги ставок:*\n"
         for r in results:
+            name = _md(r["name"])
             bet = f"{r['bet_h']}–{r['bet_a']}"
             if r["pts"] == 5:
-                text += f"{random.choice(WIN_EXACT)} — *{r['name']}* ставил {bet} +5 очков\n"
+                text += f"{random.choice(WIN_EXACT)} — *{name}* ставил {bet} +5 очков\n"
             elif r["pts"] == 2:
-                text += f"{random.choice(WIN_OUT)} — *{r['name']}* ставил {bet} +2 очка\n"
+                text += f"{random.choice(WIN_OUT)} — *{name}* ставил {bet} +2 очка\n"
             else:
-                text += f"{random.choice(LOSE)} — {r['name']} ставил {bet}\n"
+                text += f"{random.choice(LOSE)} — {name} ставил {bet}\n"
     else:
         text += "_(никто не поставил на этот матч)_"
 
-    import asyncio
     for u in db.all_users():
-        for attempt in range(3):
-            try:
-                await bot.send_message(u["id"], text, parse_mode="Markdown")
-                break
-            except Exception as e:
-                if attempt < 2:
-                    await asyncio.sleep(2 ** attempt)
-                else:
-                    log.warning("sync: send to %s failed after 3 attempts: %s", u["id"], e)
+        await _safe_send(bot, u["id"], text)
