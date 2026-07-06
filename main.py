@@ -987,8 +987,8 @@ async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):
     if settled:
         log.info("auto-sync: settled %d new match(es)", settled)
     if added:
-        log.info("auto-sync: added %d new match(es) — rescheduling reminders", added)
-        _schedule_reminders(ctx.application)
+        log.info("auto-sync: added %d new match(es)", added)
+    _schedule_reminders(ctx.application)
 
 
 def _schedule_reminders(app: Application):
