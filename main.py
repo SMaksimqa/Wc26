@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """⚽ ЧМ 2026 Ставки — Telegram Bot"""
 
+import asyncio
 import logging
 import os
 import random
@@ -113,6 +114,11 @@ def flag(team: str) -> str:
     return FLAGS.get(team, "⚽")
 
 
+def _md(s) -> str:
+    """Escape Markdown v1 special chars in user-provided strings."""
+    return str(s or "").replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+
+
 def fmt_match(m) -> str:
     dt = datetime.strptime(m["mtime"], "%Y-%m-%d %H:%M")
     return (
@@ -164,14 +170,38 @@ def kb_confirm(mid: int, h: int, a: int) -> InlineKeyboardMarkup:
 
 # ── HELPERS ────────────────────────────────────────────────────────────────
 
+async def _safe_send(bot, user_id: int, text: str):
+    """Send with Markdown, falling back to plain text on parse error."""
+    try:
+        await bot.send_message(user_id, text, parse_mode="Markdown")
+        return
+    except Exception as e:
+        err = str(e).lower()
+        if "parse" not in err and "markdown" not in err and "can't parse" not in err:
+            for delay in (2, 4):
+                await asyncio.sleep(delay)
+                try:
+                    await bot.send_message(user_id, text, parse_mode="Markdown")
+                    return
+                except Exception:
+                    pass
+        log.warning("_safe_send: Markdown failed for %s (%s), sending plain", user_id, e)
+        plain = (
+            text.replace("\\_", "_").replace("\\*", "*")
+                .replace("\\`", "`").replace("\\[", "[")
+                .replace("*", "").replace("`", "").replace("[", "")
+        )
+        try:
+            await bot.send_message(user_id, plain)
+        except Exception as e2:
+            log.warning("_safe_send: plain also failed for %s: %s", user_id, e2)
+
+
 async def _send_all(bot, text: str, exclude_id: int | None = None):
     for u in db.all_users():
         if exclude_id and u["id"] == exclude_id:
             continue
-        try:
-            await bot.send_message(u["id"], text, parse_mode="Markdown")
-        except Exception as e:
-            log.warning("send_all failed for %s: %s", u["id"], e)
+        await _safe_send(bot, u["id"], text)
 
 
 # ── USER COMMANDS ──────────────────────────────────────────────────────────
@@ -322,12 +352,16 @@ async def cmd_show_bets(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         for u in all_users:
             b = bet_map.get(u["id"])
             if b:
-                lines.append(f"  ✅ {u['name']}: {b['bet_h']}–{b['bet_a']}")
+                lines.append(f"  ✅ {_md(u['name'])}: {b['bet_h']}–{b['bet_a']}")
             else:
-                lines.append(f"  ❓ {u['name']}: не поставил")
+                lines.append(f"  ❓ {_md(u['name'])}: не поставил")
         lines.append("")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    text = "\n".join(lines)
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text(text.replace("\\_", "_").replace("\\*", "*").replace("*", "").replace("`", "").replace("[", ""))
 
 
 async def cmd_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -340,14 +374,18 @@ async def cmd_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lines = ["🏆 *Таблица лидеров ЧМ 2026:*\n"]
     for i, r in enumerate(rows):
         medal = medals[i] if i < len(medals) else f"{i+1}."
-        name = r["name"] or r["username"] or "Аноним"
+        name = _md(r["name"] or r["username"] or "Аноним")
         lines.append(
             f"{medal} *{name}* — {r['points']} очков\n"
             f"   📊 {r['bets'] or 0} ставок  "
             f"✅ {r['wins'] or 0} верных  "
             f"🔮 {r['exact'] or 0} точных\n"
         )
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    text = "\n".join(lines)
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text(text.replace("*", "").replace("`", "").replace("[", ""))
 
 
 async def cmd_results(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -375,11 +413,11 @@ async def cmd_results(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"{m['away']} {flag(m['away'])} | {m['stage']}\n"
             )
             if exact:
-                lines.append(f"  🔮 Точный счёт: {', '.join(b['name'] for b in exact)} (+5)\n")
+                lines.append(f"  🔮 Точный счёт: {', '.join(_md(b['name']) for b in exact)} (+5)\n")
             if outcome_ok:
-                lines.append(f"  ✅ Исход: {', '.join(b['name'] for b in outcome_ok)} (+2)\n")
+                lines.append(f"  ✅ Исход: {', '.join(_md(b['name']) for b in outcome_ok)} (+2)\n")
             if miss:
-                lines.append(f"  😴 Не ставили: {', '.join(u['name'] for u in miss)}\n")
+                lines.append(f"  😴 Не ставили: {', '.join(_md(u['name']) for u in miss)}\n")
             lines.append("")
         except Exception as e:
             log.exception("cmd_results: match #%s error: %s", m["id"], e)
@@ -469,13 +507,13 @@ async def cmd_setresult(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         for r in results:
             if r["pts"] == 5:
-                text += f"🔮 *{r['name']}* — точный счёт! +5 очков\n"
+                text += f"🔮 *{_md(r['name'])}* — точный счёт! +5 очков\n"
             elif r["pts"] == 2:
-                text += f"✅ *{r['name']}* — исход угадал +2 очка\n"
+                text += f"✅ *{_md(r['name'])}* — исход угадал +2 очка\n"
             else:
-                text += f"❌ {r['name']} — мимо (ставил {r['bet_h']}–{r['bet_a']})\n"
+                text += f"❌ {_md(r['name'])} — мимо (ставил {r['bet_h']}–{r['bet_a']})\n"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await _safe_send(ctx.bot, uid, text)
     await _send_all(ctx.bot, text, exclude_id=uid)
 
 
@@ -545,16 +583,21 @@ async def _show_match_bets(reply_fn, mid: int):
         lines.append(f"✅ *Поставили ({len(bets)}):*")
         for b in bets:
             pts = f" → +{b['pts']}pts" if m["done"] else ""
-            lines.append(f"  • *{b['name']}*: {b['bet_h']}–{b['bet_a']}{pts}")
+            lines.append(f"  • *{_md(b['name'])}*: {b['bet_h']}–{b['bet_a']}{pts}")
     else:
         lines.append("😴 *Никто не поставил*")
 
     if miss and not m["done"]:
         lines.append(f"\n⚠️ *Не поставили ({len(miss)}):*")
         for u in miss:
-            lines.append(f"  • {u['name']}")
+            lines.append(f"  • {_md(u['name'])}")
 
-    await reply_fn("\n".join(lines), parse_mode="Markdown")
+    text = "\n".join(lines)
+    try:
+        await reply_fn(text, parse_mode="Markdown")
+    except Exception:
+        plain = text.replace("\\_", "_").replace("\\*", "*").replace("*", "").replace("`", "").replace("[", "")
+        await reply_fn(plain)
 
 
 async def cmd_resetscores(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -862,19 +905,23 @@ async def _remind(ctx: ContextTypes.DEFAULT_TYPE):
     m = db.get_match(mid)
     if not m or m["done"]:
         return
-    missing = db.missing_bettors(mid)
-    for u in missing:
-        try:
-            await ctx.bot.send_message(
-                u["id"],
+
+    missing_ids = {u["id"] for u in db.missing_bettors(mid)}
+    for u in db.all_users():
+        if u["id"] in missing_ids:
+            text = (
                 f"⏰ *Последний шанс!*\n\n"
                 f"⚽ Через час: {flag(m['home'])} {m['home']} vs {m['away']} {flag(m['away'])}\n"
                 f"_{random.choice(TRASH)}_\n\n"
-                f"Успей поставить → /bet",
-                parse_mode="Markdown",
+                f"Успей поставить → /bet"
             )
-        except Exception as e:
-            log.warning("reminder failed %s: %s", u["id"], e)
+        else:
+            text = (
+                f"⏰ *Через час матч!*\n\n"
+                f"⚽ {flag(m['home'])} *{m['home']}* vs *{m['away']}* {flag(m['away'])}\n"
+                f"✅ Твоя ставка принята, ждём результата!"
+            )
+        await _safe_send(ctx.bot, u["id"], text)
 
 
 async def _reveal_bets(ctx: ContextTypes.DEFAULT_TYPE):
@@ -898,20 +945,17 @@ async def _reveal_bets(ctx: ContextTypes.DEFAULT_TYPE):
         lines.append("🎯 *Кто на что поставил:*")
         for b in bets:
             oc = outcome_text(b["bet_h"], b["bet_a"], h, a)
-            lines.append(f"  • *{b['name']}*: {b['bet_h']}–{b['bet_a']}  _({oc})_")
+            lines.append(f"  • *{_md(b['name'])}*: {b['bet_h']}–{b['bet_a']}  _({oc})_")
     else:
         lines.append("😶 Никто не поставил на этот матч!")
 
     if miss:
-        names = ", ".join(u["name"] for u in miss)
+        names = ", ".join(_md(u["name"]) for u in miss)
         lines.append("\n" + random.choice(TRASH_REVEAL).format(names=names))
 
     text = "\n".join(lines)
     for u in db.all_users():
-        try:
-            await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
-        except Exception as e:
-            log.warning("reveal_bets failed %s: %s", u["id"], e)
+        await _safe_send(ctx.bot, u["id"], text)
 
 
 async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
@@ -925,7 +969,7 @@ async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     all_users = db.all_users()
-    no_bets = {u["id"]: u["name"] for u in all_users}
+    no_bets = {u["id"]: _md(u["name"]) for u in all_users}
 
     lines = [f"☀️ *Матчи на сегодня — {now.strftime('%d.%m')}:*\n"]
     for m in today:
@@ -947,24 +991,12 @@ async def _morning_digest(ctx: ContextTypes.DEFAULT_TYPE):
 
     text = "\n".join(lines)
     for u in all_users:
-        try:
-            await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
-        except Exception as e:
-            log.warning("morning_digest failed %s: %s", u["id"], e)
+        await _safe_send(ctx.bot, u["id"], text)
 
 
 async def _check_stale(ctx: ContextTypes.DEFAULT_TYPE):
     """Alert admins if a match started 2h ago but still has no result in DB."""
-    now = datetime.utcnow() + timedelta(hours=3)
-    with __import__("sqlite3").connect("wc2026.db") as conn:
-        conn.row_factory = __import__("sqlite3").Row
-        stale = conn.execute(
-            """SELECT * FROM matches
-               WHERE done=0
-                 AND datetime(mtime) <= datetime(?, '-120 minutes')
-               ORDER BY mtime""",
-            (now.strftime("%Y-%m-%d %H:%M"),),
-        ).fetchall()
+    stale = db.stale_matches(hours=2)
     if not stale:
         return
 
@@ -976,10 +1008,7 @@ async def _check_stale(ctx: ContextTypes.DEFAULT_TYPE):
 
     for u in db.all_users():
         if u["is_admin"]:
-            try:
-                await ctx.bot.send_message(u["id"], text, parse_mode="Markdown")
-            except Exception as e:
-                log.warning("stale_check: send to admin %s failed: %s", u["id"], e)
+            await _safe_send(ctx.bot, u["id"], text)
 
 
 async def _sync_job(ctx: ContextTypes.DEFAULT_TYPE):

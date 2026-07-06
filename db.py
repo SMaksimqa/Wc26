@@ -162,6 +162,16 @@ def recent(limit: int = 5):
         ).fetchall()
 
 
+def stale_matches(hours: int = 2):
+    """Matches that started more than `hours` ago but have no result yet."""
+    cutoff = (_now_msk() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+    with _conn() as c:
+        return c.execute(
+            "SELECT * FROM matches WHERE done=0 AND mtime <= ? ORDER BY mtime",
+            (cutoff,),
+        ).fetchall()
+
+
 def add_match(home: str, away: str, mtime: str, stage: str = "Группа"):
     with _conn() as c:
         c.execute(

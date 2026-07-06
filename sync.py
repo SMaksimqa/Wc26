@@ -1,4 +1,5 @@
 """Auto-sync WC 2026 results from 26worldcup.github.io (updates every 15 min from FIFA API)."""
+import asyncio
 import logging
 import random
 import aiohttp
@@ -221,14 +222,12 @@ async def _broadcast_standings(bot):
 
 async def _safe_send(bot, user_id: int, text: str):
     """Send message with Markdown, falling back to plain text on parse error."""
-    import asyncio
     try:
         await bot.send_message(user_id, text, parse_mode="Markdown")
         return
     except Exception as e:
         err = str(e).lower()
         if "parse" not in err and "markdown" not in err and "can't parse" not in err:
-            # Not a Markdown error — retry with backoff
             for delay in (2, 4):
                 await asyncio.sleep(delay)
                 try:
@@ -236,9 +235,12 @@ async def _safe_send(bot, user_id: int, text: str):
                     return
                 except Exception:
                     pass
-        # Fallback: strip Markdown and send plain text
         log.warning("_safe_send: Markdown failed for %s (%s), sending plain", user_id, e)
-        plain = text.replace("*", "").replace("_", "").replace("`", "").replace("[", "")
+        plain = (
+            text.replace("\\_", "_").replace("\\*", "*")
+                .replace("\\`", "`").replace("\\[", "[")
+                .replace("*", "").replace("`", "").replace("[", "")
+        )
         try:
             await bot.send_message(user_id, plain)
         except Exception as e2:
