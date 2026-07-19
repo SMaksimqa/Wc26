@@ -181,12 +181,49 @@ async def check_results(bot) -> tuple[int, int]:
 
     if settled:
         log.info("sync: settled %d match(es)", settled)
-        if settled >= 2:
-            await _broadcast_standings(bot)
+        await _broadcast_standings(bot)
+        if not db.upcoming(1):
+            log.info("sync: no matches remaining — sending finale")
+            await _broadcast_finale(bot)
     if added:
         log.info("sync: added %d new match(es)", added)
 
     return settled, added
+
+
+async def _broadcast_finale(bot):
+    """Grand finale — sent once when no matches remain."""
+    rows = db.leaderboard()
+    if not rows:
+        return
+
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"]
+    winner = rows[0]
+    winner_name = _md(winner["name"] or winner.get("username") or "Аноним")
+
+    lines = [
+        "🏆🎉 *ЧМ 2026 ЗАВЕРШЁН!* 🎉🏆\n",
+        f"👑 *ПОБЕДИТЕЛЬ ПО СТАВКАМ:*\n"
+        f"*{winner_name}* — {winner['points']} очков, 🔮{winner['exact'] or 0} точных счётов!\n",
+        "📊 *Итоговая таблица турнира:*\n",
+    ]
+    for i, r in enumerate(rows):
+        medal = medals[i] if i < len(medals) else f"{i+1}."
+        name = _md(r["name"] or r.get("username") or "Аноним")
+        lines.append(
+            f"{medal} *{name}* — {r['points']} очков  "
+            f"_(🎯{r['bets'] or 0} ставок  🔮{r['exact'] or 0} точных)_"
+        )
+
+    if len(rows) > 1:
+        last = rows[-1]
+        last_name = _md(last["name"] or "Аноним")
+        lines.append(f"\n💀 *{last_name}* — последнее место. Чемпион аутсайдеров!")
+
+    lines.append("\n⚽ Спасибо всем за игру! До следующего турнира! 🙌")
+    text = "\n".join(lines)
+    for u in db.all_users():
+        await _safe_send(bot, u["id"], text)
 
 
 async def _broadcast_standings(bot):
